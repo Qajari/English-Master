@@ -1,0 +1,9 @@
+{
+  "name": "English Master",
+  "short_name": "English Master",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#08060d",
+  "theme_color": "#0b0712",
+  "description": "A structured English learning web app."
+}
