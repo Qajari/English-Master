@@ -1,126 +1,1168 @@
-import React, {useEffect, useMemo, useState} from "react";
-import {lessons, vocabulary, grammar, readings, listening} from "./data";
-import {loadProgress, saveProgress, resetProgress} from "./storage";
+import React, { useEffect, useState } from "react";
+import {
+  lessons,
+  vocabulary,
+  grammar,
+  readings,
+  listening,
+} from "./data.js";
 
-const nav = [
-  ["home","⌂","Home"],["lessons","▣","Lessons"],["words","Aa","Words"],
-  ["grammar","✓","Grammar"],["reading","◫","Reading"],["listening","◉","Listening"],
-  ["speaking","◌","Speaking"],["writing","✎","Writing"]
-];
+const STORAGE_KEY = "english-master-progress";
 
-function App(){
-  const [page,setPage]=useState("home");
-  const [p,setP]=useState(loadProgress);
-  useEffect(()=>saveProgress(p),[p]);
+const defaultProgress = {
+  xp: 0,
+  completedLessons: [],
+  learnedWords: [],
+  grammarDone: [],
+  readingDone: [],
+  listeningDone: [],
+  speakingSessions: 0,
+  writingSessions: 0,
+  level: "A1",
+};
 
-  const addXP=(n)=>setP(x=>({...x,xp:x.xp+n}));
-  const completeLesson=(id)=>{
-    setP(x=>x.completedLessons.includes(id)?x:{...x,completedLessons:[...x.completedLessons,id],xp:x.xp+30});
+function loadProgress() {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    return saved
+      ? { ...defaultProgress, ...JSON.parse(saved) }
+      : defaultProgress;
+  } catch {
+    return defaultProgress;
+  }
+}
+
+function PageTitle({ title, subtitle }) {
+  return (
+    <div className="pageTitle">
+      <h1>{title}</h1>
+      {subtitle && <p>{subtitle}</p>}
+    </div>
+  );
+}
+
+export default function App() {
+  const [page, setPage] = useState("home");
+  const [progress, setProgress] = useState(loadProgress);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(progress));
+  }, [progress]);
+
+  const addXp = (amount) => {
+    setProgress((prev) => ({
+      ...prev,
+      xp: (prev.xp || 0) + amount,
+    }));
   };
-  const markWord=(word)=>{
-    setP(x=>x.learnedWords.includes(word)?x:{...x,learnedWords:[...x.learnedWords,word],xp:x.xp+5});
-  };
-  const levelProgress=Math.min(100, Math.round((p.xp%500)/5));
 
-  return <div className="app">
+  const updateProgress = (changes) => {
+    setProgress((prev) => ({
+      ...prev,
+      ...changes,
+    }));
+  };
+
+  return (
+    <div className="app">
+      <TopBar progress={progress} />
+
+      {page === "home" && (
+        <Home
+          progress={progress}
+          addXp={addXp}
+          updateProgress={updateProgress}
+          setPage={setPage}
+        />
+      )}
+
+      {page === "lessons" && (
+        <Lessons
+          progress={progress}
+          addXp={addXp}
+          updateProgress={updateProgress}
+        />
+      )}
+
+      {page === "words" && (
+        <Vocabulary
+          progress={progress}
+          addXp={addXp}
+          updateProgress={updateProgress}
+        />
+      )}
+
+      {page === "grammar" && (
+        <Grammar
+          progress={progress}
+          addXp={addXp}
+          updateProgress={updateProgress}
+        />
+      )}
+
+      {page === "reading" && (
+        <Reading
+          progress={progress}
+          addXp={addXp}
+          updateProgress={updateProgress}
+        />
+      )}
+
+      {page === "listening" && (
+        <Listening
+          progress={progress}
+          addXp={addXp}
+          updateProgress={updateProgress}
+        />
+      )}
+
+      {page === "speaking" && (
+        <Speaking
+          progress={progress}
+          addXp={addXp}
+          updateProgress={updateProgress}
+        />
+      )}
+
+      {page === "writing" && (
+        <Writing
+          progress={progress}
+          addXp={addXp}
+          updateProgress={updateProgress}
+        />
+      )}
+
+      <BottomNav page={page} setPage={setPage} />
+    </div>
+  );
+}
+
+function TopBar({ progress }) {
+  return (
     <header className="topbar">
-      <button className="brand" onClick={()=>setPage("home")}><span className="brandMark">✦</span><span>ENGLISH MASTER</span></button>
-      <div className="topStats"><span>🔥 {p.streak}</span><span>⚡ {p.xp} XP</span><span className="levelPill">{p.level}</span></div>
+      <div className="brand">
+        <span className="brandMark">E</span>
+        <span>ENGLISH MASTER</span>
+      </div>
+
+      <div className="topStats">
+        <span>
+          XP <strong>{progress.xp || 0}</strong>
+        </span>
+        <span>
+          LEVEL <strong>{progress.level || "A1"}</strong>
+        </span>
+      </div>
     </header>
-    <main className="content">
-      {page==="home" && <Home p={p} setPage={setPage} progress={levelProgress}/>}
-      {page==="lessons" && <Lessons p={p} setPage={setPage} completeLesson={completeLesson}/>}
-      {page==="words" && <Words p={p} markWord={markWord}/>}
-      {page==="grammar" && <Grammar p={p} setP={setP} addXP={addXP}/>}
-      {page==="reading" && <Reading p={p} setP={setP}/>}
-      {page==="listening" && <Listening p={p} setP={setP}/>}
-      {page==="speaking" && <Speaking p={p} setP={setP}/>}
-      {page==="writing" && <Writing p={p} setP={setP}/>}
+  );
+}
+
+function Home({ progress, addXp, updateProgress, setPage }) {
+  const [teacherState, setTeacherState] = useState("idle");
+  const [transcript, setTranscript] = useState("");
+  const [teacherReply, setTeacherReply] = useState("");
+  const [correction, setCorrection] = useState("");
+  const [explanation, setExplanation] = useState("");
+  const [followUp, setFollowUp] = useState("");
+  const [history, setHistory] = useState([]);
+
+  const speak = (text, onEnd) => {
+    if (!text || !window.speechSynthesis) {
+      onEnd?.();
+      return;
+    }
+
+    window.speechSynthesis.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(text);
+
+    utterance.lang = "en-US";
+    utterance.rate = 0.95;
+    utterance.pitch = 1;
+
+    utterance.onend = () => {
+      onEnd?.();
+    };
+
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const askTeacher = async (message) => {
+    const cleanMessage = message?.trim();
+
+    if (!cleanMessage) return;
+
+    setTeacherState("thinking");
+    setTranscript(cleanMessage);
+    setTeacherReply("");
+    setCorrection("");
+    setExplanation("");
+    setFollowUp("");
+
+    try {
+      const response = await fetch("/api/teacher", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          message: cleanMessage,
+          history,
+          level: progress.level || "A1",
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.ok) {
+        throw new Error(data.error || "Teacher request failed.");
+      }
+
+      const reply = data.reply || "";
+      const nextCorrection = data.correction || "";
+      const nextExplanation = data.explanation || "";
+      const nextFollowUp = data.followUp || "";
+
+      setTeacherReply(reply);
+      setCorrection(nextCorrection);
+      setExplanation(nextExplanation);
+      setFollowUp(nextFollowUp);
+
+      setHistory((previous) => [
+        ...previous.slice(-11),
+        {
+          role: "student",
+          content: cleanMessage,
+        },
+        {
+          role: "teacher",
+          content: `${reply} ${nextFollowUp}`.trim(),
+        },
+      ]);
+
+      setTeacherState("speaking");
+
+      speak(
+        `${reply} ${nextFollowUp}`.trim(),
+        () => setTeacherState("idle")
+      );
+
+      addXp(5);
+
+      updateProgress({
+        speakingSessions:
+          (progress.speakingSessions || 0) + 1,
+      });
+    } catch (error) {
+      console.error(error);
+
+      setTeacherState("idle");
+      setTeacherReply(
+        "I couldn't connect to the English Teacher right now."
+      );
+    }
+  };
+
+  const startConversation = () => {
+    const SpeechRecognition =
+      window.SpeechRecognition ||
+      window.webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      setTeacherReply(
+        "Speech recognition is not supported in this browser."
+      );
+      return;
+    }
+
+    window.speechSynthesis?.cancel();
+
+    const recognition = new SpeechRecognition();
+
+    recognition.lang = "en-US";
+    recognition.interimResults = false;
+    recognition.continuous = false;
+    recognition.maxAlternatives = 1;
+
+    setTeacherState("listening");
+    setTranscript("");
+    setTeacherReply("");
+    setCorrection("");
+    setExplanation("");
+    setFollowUp("");
+
+    recognition.onresult = (event) => {
+      const text =
+        event.results[0][0].transcript;
+
+      askTeacher(text);
+    };
+
+    recognition.onerror = (event) => {
+      console.error(
+        "Speech recognition error:",
+        event.error
+      );
+
+      setTeacherState("idle");
+      setTeacherReply(
+        "I couldn't hear you. Please try again."
+      );
+    };
+
+    recognition.onend = () => {
+      setTeacherState((current) =>
+        current === "listening" ? "idle" : current
+      );
+    };
+
+    recognition.start();
+  };
+
+  const progressPercent = Math.min(
+    100,
+    ((progress.completedLessons?.length || 0) /
+      Math.max(lessons.length, 1)) *
+      100
+  );
+
+  const status =
+    teacherState === "listening"
+      ? "LISTENING..."
+      : teacherState === "thinking"
+      ? "THINKING..."
+      : teacherState === "speaking"
+      ? "SPEAKING..."
+      : "READY TO TALK";
+
+  return (
+    <main className="homePage">
+      <section className="homeIntro">
+        <h1>Let's improve your English.</h1>
+        <p>
+          Practice naturally with your personal AI English
+          Teacher.
+        </p>
+      </section>
+
+      <section className={`teacher ${teacherState}`}>
+        <div className="teacherGlow" />
+
+        <button
+          className="teacherOrb"
+          onClick={startConversation}
+          aria-label="Talk to English Teacher"
+        >
+          <div className="teacherWave">
+            <span />
+            <span />
+            <span />
+            <span />
+            <span />
+          </div>
+        </button>
+
+        <div className="teacherStatus">
+          {status}
+        </div>
+
+        {transcript && (
+          <div className="conversationLine userLine">
+            <span>You</span>
+            {transcript}
+          </div>
+        )}
+
+        {teacherReply && (
+          <div className="conversationLine teacherLine">
+            <span>Teacher</span>
+            {teacherReply}
+
+            {followUp && (
+              <div style={{ marginTop: "10px" }}>
+                {followUp}
+              </div>
+            )}
+          </div>
+        )}
+
+        {correction && (
+          <div className="conversationLine">
+            <span style={{ color: "var(--blue)" }}>
+              Correction
+            </span>
+
+            <div>{correction}</div>
+
+            {explanation && (
+              <div
+                dir="rtl"
+                style={{
+                  marginTop: "7px",
+                  color: "var(--muted)",
+                }}
+              >
+                {explanation}
+              </div>
+            )}
+          </div>
+        )}
+
+        <button
+          className="teacherButton"
+          onClick={startConversation}
+          disabled={
+            teacherState === "listening" ||
+            teacherState === "thinking" ||
+            teacherState === "speaking"
+          }
+        >
+          {teacherState === "listening"
+            ? "LISTENING..."
+            : teacherState === "thinking"
+            ? "THINKING..."
+            : teacherState === "speaking"
+            ? "SPEAKING..."
+            : "TALK TO ME"}
+        </button>
+      </section>
+
+      <div className="homeDivider" />
+
+      <section className="quickPractice">
+        <h2>Your progress</h2>
+        <p>
+          Keep going. Small daily practice makes a big
+          difference.
+        </p>
+
+        <div className="progressLine">
+          <span
+            style={{
+              width: `${progressPercent}%`,
+            }}
+          />
+        </div>
+
+        <div className="progressMeta">
+          <span>
+            {progress.completedLessons?.length || 0} /{" "}
+            {lessons.length} lessons
+          </span>
+
+          <span>{Math.round(progressPercent)}%</span>
+        </div>
+      </section>
+
+      <section className="homeLinks">
+        <button onClick={() => setPage("speaking")}>
+          <span>Speaking</span>
+          <span>→</span>
+        </button>
+
+        <button onClick={() => setPage("listening")}>
+          <span>Listening</span>
+          <span>→</span>
+        </button>
+
+        <button onClick={() => setPage("words")}>
+          <span>Vocabulary</span>
+          <span>→</span>
+        </button>
+      </section>
     </main>
-    <nav className="bottomNav">{nav.slice(0,5).map(([id,icon,label])=><button key={id} className={page===id?"active":""} onClick={()=>setPage(id)}><b>{icon}</b><small>{label}</small></button>)}</nav>
-    <button className="moreBtn" onClick={()=>setPage("lessons")}>☰</button>
-  </div>
+  );
 }
 
-function Home({p,setPage,progress}){
- return <section>
-   <div className="hero card">
-    <div><span className="eyebrow">YOUR ENGLISH JOURNEY</span><h1>Build English<br/><em>for real life.</em></h1><p>Train vocabulary, grammar, reading, listening, speaking and writing in one structured path.</p></div>
-    <div className="levelCircle"><strong>{p.level}</strong><span>{progress}%</span></div>
-   </div>
-   <div className="grid2">
-    <button className="actionCard" onClick={()=>setPage("lessons")}><span>▶</span><div><b>Continue learning</b><small>Pick up where you left off</small></div><i>→</i></button>
-    <button className="actionCard" onClick={()=>setPage("words")}><span>✦</span><div><b>Review words</b><small>{p.learnedWords.length} words learned</small></div><i>→</i></button>
-   </div>
-   <h2>Skills</h2>
-   <div className="skillGrid">
-    {[
-      ["📚","Vocabulary","words"],["✓","Grammar","grammar"],["◫","Reading","reading"],
-      ["◉","Listening","listening"],["◌","Speaking","speaking"],["✎","Writing","writing"]
-    ].map(x=><button key={x[2]} className="skill" onClick={()=>setPage(x[2])}><span>{x[0]}</span><b>{x[1]}</b><i>→</i></button>)}
-   </div>
- </section>
+function Lessons({ progress, addXp, updateProgress }) {
+  const [level, setLevel] = useState("ALL");
+
+  const levels = [
+    "ALL",
+    "A1",
+    "A2",
+    "B1",
+    "B2",
+    "C1",
+    "C2",
+  ];
+
+  const filtered =
+    level === "ALL"
+      ? lessons
+      : lessons.filter((lesson) => lesson.level === level);
+
+  const completeLesson = (id) => {
+    if (progress.completedLessons?.includes(id)) return;
+
+    updateProgress({
+      completedLessons: [
+        ...(progress.completedLessons || []),
+        id,
+      ],
+    });
+
+    addXp(20);
+  };
+
+  return (
+    <main className="page">
+      <PageTitle
+        title="Lessons"
+        subtitle="Build your English step by step."
+      />
+
+      <div className="filters">
+        {levels.map((item) => (
+          <button
+            key={item}
+            className={level === item ? "active" : ""}
+            onClick={() => setLevel(item)}
+          >
+            {item}
+          </button>
+        ))}
+      </div>
+
+      <section className="lessons">
+        {filtered.map((lesson) => {
+          const completed =
+            progress.completedLessons?.includes(
+              lesson.id
+            );
+
+          return (
+            <article className="lessonCard" key={lesson.id}>
+              <div>
+                <span className="tag">
+                  {lesson.level}
+                </span>
+
+                <h3>{lesson.title}</h3>
+                <p>{lesson.desc}</p>
+
+                <p>
+                  <strong>Grammar:</strong>{" "}
+                  {lesson.grammar}
+                </p>
+
+                <p>
+                  <strong>Words:</strong>{" "}
+                  {lesson.words.join(", ")}
+                </p>
+              </div>
+
+              <button
+                className="primary"
+                onClick={() => completeLesson(lesson.id)}
+              >
+                {completed ? "COMPLETED" : "COMPLETE"}
+              </button>
+            </article>
+          );
+        })}
+      </section>
+    </main>
+  );
 }
 
-function Lessons({p,setPage,completeLesson}){
- return <section><PageTitle title="Lessons" sub="Follow the path from A1 to C2."/>
- <div className="lessonList">{lessons.map(l=>{
-  const done=p.completedLessons.includes(l.id);
-  return <article className={"lesson card "+(done?"done":"")} key={l.id}>
-   <div className="lessonNum">{String(l.id).padStart(2,"0")}</div>
-   <div className="lessonBody"><span className="tag">{l.level}</span><h3>{l.title}</h3><p>{l.desc}</p><small>Grammar: {l.grammar}</small></div>
-   <button onClick={()=>{completeLesson(l.id);setPage("words")}}>{done?"✓ Done":"Start"}</button>
-  </article>
- })}</div></section>
+function Vocabulary({
+  progress,
+  addXp,
+  updateProgress,
+}) {
+  const markLearned = (word) => {
+    if (progress.learnedWords?.includes(word)) return;
+
+    updateProgress({
+      learnedWords: [
+        ...(progress.learnedWords || []),
+        word,
+      ],
+    });
+
+    addXp(5);
+  };
+
+  return (
+    <main className="page">
+      <PageTitle
+        title="Vocabulary"
+        subtitle="Useful words with real examples."
+      />
+
+      <section className="vocabulary">
+        {vocabulary.map(
+          ([word, meaning, example, level]) => (
+            <article className="word" key={word}>
+              <strong>{word}</strong>
+
+              <div>
+                <p>{meaning}</p>
+                <p>
+                  <em>{example}</em>
+                </p>
+
+                <button
+                  className="primary"
+                  onClick={() => markLearned(word)}
+                >
+                  {progress.learnedWords?.includes(word)
+                    ? "LEARNED"
+                    : "MARK LEARNED"}
+                </button>
+              </div>
+
+              <span className="level">{level}</span>
+            </article>
+          )
+        )}
+      </section>
+    </main>
+  );
 }
 
-function Words({p,markWord}){
- const [q,setQ]=useState(""); const [level,setLevel]=useState("ALL");
- const list=useMemo(()=>vocabulary.filter(v=>(level==="ALL"||v[3]===level)&&v.slice(0,3).join(" ").toLowerCase().includes(q.toLowerCase())),[q,level]);
- return <section><PageTitle title="Vocabulary" sub="Learn words in context, not in isolation."/>
- <div className="filters"><input placeholder="Search a word..." value={q} onChange={e=>setQ(e.target.value)}/><select value={level} onChange={e=>setLevel(e.target.value)}><option>ALL</option>{["A1","A2","B1","B2","C1","C2"].map(x=><option key={x}>{x}</option>)}</select></div>
- <div className="wordList">{list.map(v=><article className="word card" key={v[0]}><div><span className="tag">{v[3]}</span><h3>{v[0]}</h3><p>{v[1]}</p><blockquote>{v[2]}</blockquote></div><button className={p.learnedWords.includes(v[0])?"learned":""} onClick={()=>markWord(v[0])}>{p.learnedWords.includes(v[0])?"✓":"Learn"}</button></article>)}</div>
- </section>
+function Grammar({
+  progress,
+  addXp,
+  updateProgress,
+}) {
+  const [selected, setSelected] = useState(0);
+  const [answer, setAnswer] = useState(null);
+
+  const item = grammar[selected];
+
+  const chooseAnswer = (option) => {
+    setAnswer(option);
+
+    if (
+      option === item.answer &&
+      !progress.grammarDone?.includes(selected)
+    ) {
+      updateProgress({
+        grammarDone: [
+          ...(progress.grammarDone || []),
+          selected,
+        ],
+      });
+
+      addXp(10);
+    }
+  };
+
+  return (
+    <main className="page">
+      <PageTitle
+        title="Grammar"
+        subtitle="Understand the patterns behind English."
+      />
+
+      <div className="filters">
+        {grammar.map((item, index) => (
+          <button
+            key={item.title}
+            className={
+              selected === index ? "active" : ""
+            }
+            onClick={() => {
+              setSelected(index);
+              setAnswer(null);
+            }}
+          >
+            {item.level}
+          </button>
+        ))}
+      </div>
+
+      <section className="card">
+        <span className="tag">{item.level}</span>
+
+        <h2>{item.title}</h2>
+
+        <p>{item.rule}</p>
+
+        <div className="actionCard">
+          <strong>{item.example}</strong>
+        </div>
+
+        <div style={{ marginTop: "28px" }}>
+          <h3>{item.question}</h3>
+
+          <div className="options">
+            {item.options.map((option) => (
+              <button
+                key={option}
+                className={
+                  answer === option
+                    ? option === item.answer
+                      ? "correct"
+                      : "wrong"
+                    : ""
+                }
+                onClick={() => chooseAnswer(option)}
+              >
+                {option}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {answer && (
+          <p
+            style={{
+              color:
+                answer === item.answer
+                  ? "var(--success)"
+                  : "var(--danger)",
+              fontWeight: 700,
+              marginTop: "18px",
+            }}
+          >
+            {answer === item.answer
+              ? "Correct!"
+              : `The correct answer is "${item.answer}".`}
+          </p>
+        )}
+      </section>
+    </main>
+  );
 }
 
-function Grammar({p,setP,addXP}){
- const [i,setI]=useState(0),[choice,setChoice]=useState(null); const g=grammar[i];
- const answer=choice===g.answer;
- return <section><PageTitle title="Grammar" sub="Understand the rule, then use it."/>
- <article className="card lessonCard"><span className="tag">{g.level}</span><h2>{g.title}</h2><p>{g.rule}</p><div className="example">{g.example}</div><h3>Quick check</h3><p>{g.question}</p><div className="options">{g.options.map(o=><button className={choice===o?(o===g.answer?"correct":"wrong"):""} onClick={()=>{if(choice===null){setChoice(o);if(o===g.answer){addXP(15);setP(x=>({...x,grammarScore:x.grammarScore+1}))}}}} key={o}>{o}</button>)}</div>{choice&&<div className={answer?"feedback good":"feedback bad"}>{answer?"Correct! +15 XP":"Not quite. Review the rule and try the next one."}</div>}<button className="primary" onClick={()=>{setI((i+1)%grammar.length);setChoice(null)}}>Next lesson →</button></article>
- </section>
+function Reading({
+  progress,
+  addXp,
+  updateProgress,
+}) {
+  const [selected, setSelected] = useState(0);
+  const [answer, setAnswer] = useState(null);
+
+  const item = readings[selected];
+
+  const chooseAnswer = (option) => {
+    setAnswer(option);
+
+    if (
+      option === item.answer &&
+      !progress.readingDone?.includes(selected)
+    ) {
+      updateProgress({
+        readingDone: [
+          ...(progress.readingDone || []),
+          selected,
+        ],
+      });
+
+      addXp(10);
+    }
+  };
+
+  return (
+    <main className="page">
+      <PageTitle
+        title="Reading"
+        subtitle="Improve comprehension and vocabulary."
+      />
+
+      <div className="filters">
+        {readings.map((item, index) => (
+          <button
+            key={item.title}
+            className={
+              selected === index ? "active" : ""
+            }
+            onClick={() => {
+              setSelected(index);
+              setAnswer(null);
+            }}
+          >
+            {item.level}
+          </button>
+        ))}
+      </div>
+
+      <article className="reading">
+        <span className="tag">{item.level}</span>
+
+        <h3>{item.title}</h3>
+
+        <p className="readingText">
+          {item.text}
+        </p>
+
+        <h3>{item.question}</h3>
+
+        <div className="options">
+          {item.options.map((option) => (
+            <button
+              key={option}
+              className={
+                answer === option
+                  ? option === item.answer
+                    ? "correct"
+                    : "wrong"
+                  : ""
+              }
+              onClick={() => chooseAnswer(option)}
+            >
+              {option}
+            </button>
+          ))}
+        </div>
+
+        {answer && (
+          <p
+            style={{
+              color:
+                answer === item.answer
+                  ? "var(--success)"
+                  : "var(--danger)",
+              fontWeight: 700,
+              marginTop: "18px",
+            }}
+          >
+            {answer === item.answer
+              ? "Correct!"
+              : `The correct answer is "${item.answer}".`}
+          </p>
+        )}
+      </article>
+    </main>
+  );
 }
 
-function Reading({p,setP}){
- const [i,setI]=useState(0),[choice,setChoice]=useState(null); const r=readings[i]; const ok=choice===r.answer;
- return <section><PageTitle title="Reading" sub="Read for meaning, structure and vocabulary."/><article className="card reading"><span className="tag">{r.level}</span><h2>{r.title}</h2><p className="readingText">{r.text}</p><hr/><h3>{r.question}</h3><div className="options">{r.options.map(o=><button className={choice===o?(o===r.answer?"correct":"wrong"):""} onClick={()=>{if(choice===null){setChoice(o);if(o===r.answer)setP(x=>({...x,readingScore:x.readingScore+1,xp:x.xp+20}))}}} key={o}>{o}</button>)}</div>{choice&&<div className={ok?"feedback good":"feedback bad"}>{ok?"Excellent reading. +20 XP":"Review the paragraph and look for the main idea."}</div>}<button className="primary" onClick={()=>{setI((i+1)%readings.length);setChoice(null)}}>Next text →</button></article></section>
+function Listening({
+  progress,
+  addXp,
+  updateProgress,
+}) {
+  const [selected, setSelected] = useState(0);
+  const [answer, setAnswer] = useState(null);
+
+  const item = listening[selected];
+
+  const playAudio = () => {
+    if (!window.speechSynthesis) return;
+
+    window.speechSynthesis.cancel();
+
+    const utterance =
+      new SpeechSynthesisUtterance(item.text);
+
+    utterance.lang = "en-US";
+    utterance.rate = 0.85;
+
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const chooseAnswer = (option) => {
+    setAnswer(option);
+
+    if (
+      option === item.answer &&
+      !progress.listeningDone?.includes(selected)
+    ) {
+      updateProgress({
+        listeningDone: [
+          ...(progress.listeningDone || []),
+          selected,
+        ],
+      });
+
+      addXp(10);
+    }
+  };
+
+  return (
+    <main className="page">
+      <PageTitle
+        title="Listening"
+        subtitle="Train your ear with spoken English."
+      />
+
+      <div className="filters">
+        {listening.map((item, index) => (
+          <button
+            key={item.title}
+            className={
+              selected === index ? "active" : ""
+            }
+            onClick={() => {
+              setSelected(index);
+              setAnswer(null);
+            }}
+          >
+            {item.level}
+          </button>
+        ))}
+      </div>
+
+      <article className="reading">
+        <span className="tag">{item.level}</span>
+
+        <h3>{item.title}</h3>
+
+        <button
+          className="primary"
+          onClick={playAudio}
+          style={{ marginTop: "18px" }}
+        >
+          ▶ LISTEN
+        </button>
+
+        <p className="listeningText">
+          Listen carefully, then answer the question.
+        </p>
+
+        <h3>{item.question}</h3>
+
+        <div className="options">
+          {item.options.map((option) => (
+            <button
+              key={option}
+              className={
+                answer === option
+                  ? option === item.answer
+                    ? "correct"
+                    : "wrong"
+                  : ""
+              }
+              onClick={() => chooseAnswer(option)}
+            >
+              {option}
+            </button>
+          ))}
+        </div>
+
+        {answer && (
+          <p
+            style={{
+              color:
+                answer === item.answer
+                  ? "var(--success)"
+                  : "var(--danger)",
+              fontWeight: 700,
+              marginTop: "18px",
+            }}
+          >
+            {answer === item.answer
+              ? "Correct!"
+              : `The correct answer is "${item.answer}".`}
+          </p>
+        )}
+      </article>
+    </main>
+  );
 }
 
-function Listening({p,setP}){
- const [i,setI]=useState(0),[choice,setChoice]=useState(null); const l=listening[i]; const ok=choice===l.answer;
- const speak=()=>{if("speechSynthesis" in window){speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(l.text);u.lang="en-US";u.rate=0.82;speechSynthesis.speak(u)}};
- return <section><PageTitle title="Listening" sub="Listen, understand, answer."/><article className="card lessonCard"><span className="tag">{l.level}</span><h2>{l.title}</h2><button className="listenBtn" onClick={speak}>▶ Play audio</button><p className="hint">Listen twice. First for the general meaning, then for details.</p><h3>{l.question}</h3><div className="options">{l.options.map(o=><button className={choice===o?(o===l.answer?"correct":"wrong"):""} onClick={()=>{if(choice===null){setChoice(o);if(o===l.answer)setP(x=>({...x,listeningScore:x.listeningScore+1,xp:x.xp+20}))}}} key={o}>{o}</button>)}</div>{choice&&<div className={ok?"feedback good":"feedback bad"}>{ok?"Great listening. +20 XP":"Listen again and focus on the key detail."}</div>}<button className="primary" onClick={()=>{setI((i+1)%listening.length);setChoice(null)}}>Next audio →</button></article></section>
+function Speaking({
+  progress,
+  addXp,
+  updateProgress,
+}) {
+  const [state, setState] = useState("idle");
+  const [text, setText] = useState("");
+
+  const startRecording = () => {
+    const SpeechRecognition =
+      window.SpeechRecognition ||
+      window.webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      setText(
+        "Speech recognition is not supported in this browser."
+      );
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+
+    recognition.lang = "en-US";
+    recognition.interimResults = false;
+    recognition.continuous = false;
+
+    setState("recording");
+    setText("");
+
+    recognition.onresult = (event) => {
+      const result =
+        event.results[0][0].transcript;
+
+      setText(result);
+      setState("idle");
+
+      updateProgress({
+        speakingSessions:
+          (progress.speakingSessions || 0) + 1,
+      });
+
+      addXp(10);
+    };
+
+    recognition.onerror = () => {
+      setState("idle");
+      setText("Please try again.");
+    };
+
+    recognition.onend = () => {
+      setState((current) =>
+        current === "recording" ? "idle" : current
+      );
+    };
+
+    recognition.start();
+  };
+
+  return (
+    <main className="page">
+      <PageTitle
+        title="Speaking"
+        subtitle="Practice speaking English out loud."
+      />
+
+      <article className="speaking">
+        <h3>Tell me about your day.</h3>
+
+        <p>
+          Speak naturally. Focus on communicating your
+          ideas rather than being perfect.
+        </p>
+
+        <button
+          className={`recordButton ${
+            state === "recording" ? "recording" : ""
+          }`}
+          onClick={startRecording}
+        >
+          {state === "recording" ? "●" : "MIC"}
+        </button>
+
+        {text && (
+          <p>
+            <strong>You said:</strong> {text}
+          </p>
+        )}
+      </article>
+    </main>
+  );
 }
 
-function Speaking({p,setP}){
- const [recording,setRecording]=useState(false),[result,setResult]=useState("");
- const start=()=>{
-   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-   if(!SR){setResult("Speech recognition is not available in this browser. Try Safari on iPhone or Chrome with speech recognition support.");return}
-   const r=new SR(); r.lang="en-US"; r.interimResults=false;
-   r.onstart=()=>setRecording(true); r.onend=()=>setRecording(false);
-   r.onresult=e=>{setResult(e.results[0][0].transcript);setP(x=>({...x,speakingSessions:x.speakingSessions+1,xp:x.xp+15}))};
-   r.onerror=()=>{setRecording(false);setResult("Could not capture speech. Check microphone permission.");}; r.start();
- };
- return <section><PageTitle title="Speaking" sub="Speak out loud and build fluency."/><article className="card speaking"><span className="tag">B1 → C2</span><h2>Speak for 60 seconds</h2><p>Describe a skill you would like to learn and explain why it matters to you.</p><div className="promptBox">“I would like to learn... because...”</div><button className={"record "+(recording?"recording":"")} onClick={start}>{recording?"● Listening...":"🎙 Start speaking"}</button>{result&&<div className="transcript"><b>Transcript</b><p>{result}</p></div>}<p className="hint">This offline-first version uses your browser's speech recognition when available. Later we can add a dedicated pronunciation engine.</p></article></section>
+function Writing({
+  progress,
+  addXp,
+  updateProgress,
+}) {
+  const [text, setText] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+
+  const submit = () => {
+    if (!text.trim()) return;
+
+    setSubmitted(true);
+
+    updateProgress({
+      writingSessions:
+        (progress.writingSessions || 0) + 1,
+    });
+
+    addXp(10);
+  };
+
+  return (
+    <main className="page">
+      <PageTitle
+        title="Writing"
+        subtitle="Express your ideas in English."
+      />
+
+      <article className="writing">
+        <h3>Write about your day.</h3>
+
+        <p>
+          Try to write at least three sentences in
+          English.
+        </p>
+
+        <textarea
+          value={text}
+          onChange={(event) => {
+            setText(event.target.value);
+            setSubmitted(false);
+          }}
+          placeholder="Write in English..."
+        />
+
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginTop: "14px",
+            gap: "12px",
+          }}
+        >
+          <span
+            style={{
+              color: "var(--muted)",
+              fontSize: "12px",
+            }}
+          >
+            {text.length} characters
+          </span>
+
+          <button
+            className="primary"
+            onClick={submit}
+          >
+            SUBMIT
+          </button>
+        </div>
+
+        {submitted && (
+          <p
+            style={{
+              color: "var(--success)",
+              fontWeight: 700,
+            }}
+          >
+            Your writing has been recorded. Keep
+            practicing!
+          </p>
+        )}
+      </article>
+    </main>
+  );
 }
 
-function Writing({p,setP}){
- const [text,setText]=useState(""); const words=text.trim()?text.trim().split(/\s+/).length:0;
- const checks=[["Length",words>=80,`${words}/80 words`],["Paragraphs",text.split(/\n\s*\n/).filter(Boolean).length>=2,"Use at least 2 paragraphs"],["Because/Although",/\b(because|although|however|therefore)\b/i.test(text),"Use a linking word"]];
- return <section><PageTitle title="Writing" sub="Write clearly, then review your own language."/><article className="card writing"><span className="tag">B1+</span><h2>Opinion paragraph</h2><p>Write at least 80 words: <b>Should people work from home when possible?</b></p><textarea value={text} onChange={e=>setText(e.target.value)} placeholder="Write your answer here..."/><div className="writeStats"><span>{words} words</span><span>{text.length} characters</span></div><div className="checks">{checks.map(c=><div key={c[0]} className={c[1]?"check ok":"check"}><span>{c[1]?"✓":"○"}</span><b>{c[0]}</b><small>{c[2]}</small></div>)}</div><button className="primary" onClick={()=>setP(x=>({...x,writingSessions:x.writingSessions+1,xp:x.xp+10}))}>Save practice +10 XP</button></article></section>
+function BottomNav({ page, setPage }) {
+  const items = [
+    ["home", "Home", "⌂"],
+    ["lessons", "Lessons", "▤"],
+    ["words", "Words", "Aa"],
+    ["grammar", "Grammar", "✓"],
+    ["speaking", "Speak", "◉"],
+  ];
+
+  return (
+    <nav className="bottomNav">
+      <div className="bottomNavInner">
+        {items.map(([id, label, icon]) => (
+          <button
+            key={id}
+            className={page === id ? "active" : ""}
+            onClick={() => setPage(id)}
+          >
+            <div
+              style={{
+                fontSize: "16px",
+                marginBottom: "3px",
+              }}
+            >
+              {icon}
+            </div>
+            {label}
+          </button>
+        ))}
+      </div>
+    </nav>
+  );
 }
-
-function PageTitle({title,sub}){return <div className="pageTitle"><span className="eyebrow">ENGLISH MASTER</span><h1>{title}</h1><p>{sub}</p></div>}
-
-export default App;
